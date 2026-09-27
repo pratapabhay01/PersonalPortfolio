@@ -1,24 +1,34 @@
-require("dotenv").config();
-
 const express = require("express");
 const mongoose = require("mongoose");
+const dotenv = require("dotenv");
+const path = require("path");
+
+dotenv.config();
 
 const app = express();
 
 app.use(express.json());
-app.use(express.static("public"));
-app.get("/", (req, res) => {
-    res.sendFile(__dirname + "/public/index.html");
-});
+app.use(express.static(path.join(__dirname, "public")));
 
-// MongoDB Connection
-mongoose.connect(process.env.MONGO_URI)
-    .then(() => {
-        console.log("MongoDB Connected Successfully");
-    })
-    .catch((error) => {
-        console.log("MongoDB Connection Error:", error.message);
-    });
+// MongoDB connection
+let dbConnectionPromise = null;
+
+async function connectDB() {
+    if (mongoose.connection.readyState === 1) {
+        return;
+    }
+
+    if (!dbConnectionPromise) {
+        dbConnectionPromise = mongoose.connect(process.env.MONGO_URI, {
+            serverSelectionTimeoutMS: 10000
+        }).catch((error) => {
+            dbConnectionPromise = null;
+            throw error;
+        });
+    }
+
+    await dbConnectionPromise;
+}
 
 // Project Schema
 const projectSchema = new mongoose.Schema({
@@ -29,21 +39,39 @@ const projectSchema = new mongoose.Schema({
 
 const Project = mongoose.model("Project", projectSchema);
 
+// Home Page
+app.get("/", (req, res) => {
+    res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
 // Get Projects
 app.get("/api/projects", async (req, res) => {
+
     try {
+
+        await connectDB();
+
         const projects = await Project.find();
+
         res.json(projects);
+
     } catch (error) {
+
+        console.error("MongoDB/API Error:", error.message);
+
         res.status(500).json({
             message: "Error fetching projects"
         });
     }
 });
 
-// Start Server
+// Start server
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
-    console.log(`Server running at http://localhost:${PORT}`);
-});
+if (process.env.VERCEL !== "1") {
+    app.listen(PORT, () => {
+        console.log(`Server running at http://localhost:${PORT}`);
+    });
+}
+
+module.exports = app;
